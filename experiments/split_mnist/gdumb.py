@@ -5,6 +5,10 @@ from torch.optim import SGD
 from avalanche.evaluation import metrics as metrics
 from models import MLP
 from experiments.utils import set_seed, create_default_args
+import numpy as np
+from openTSNE import TSNE
+import plot_utills as utils
+import matplotlib.pyplot as plt
 
 
 def gdumb_smnist(override_args=None):
@@ -13,7 +17,7 @@ def gdumb_smnist(override_args=None):
     https://link.springer.com/chapter/10.1007/978-3-030-58536-5_31
     """
     args = create_default_args({'cuda': 0, 'hidden_size': 400, 'mem_size': 4400,
-                                'hidden_layers': 2, 'epochs': 10, 'dropout': 0,
+                                'hidden_layers': 2, 'epochs': 1, 'dropout': 0,
                                 'learning_rate': 0.1, 'train_mb_size': 16, 'seed': 0}, override_args)
     set_seed(args.seed)
     device = torch.device(f"cuda:{args.cuda}"
@@ -41,10 +45,29 @@ def gdumb_smnist(override_args=None):
     for experience in benchmark.train_stream:
         cl_strategy.train(experience)
         res = cl_strategy.eval(benchmark.test_stream)
+        # save model
+        torch.save(cl_strategy.model.state_dict(), f'weights/gdumb/mem{args.mem_size}_exp{experience.current_experience}.pth')
+        # data for plotting
+        plot_data={'feature': np.empty((0,args.hidden_size)), 'label': []}
+        for i in range(len(benchmark.original_test_dataset)//30):
+            feature=cl_strategy.model.get_features(benchmark.original_test_dataset[i][0].to('cuda'))# 特徴量を取得
+            plot_data['feature']=np.append(plot_data['feature'],feature.detach().cpu().numpy(),axis=0)
+            plot_data['label'].append(benchmark.original_test_dataset[i][1])
+        tsne = TSNE()
+        embedding= tsne.fit(plot_data['feature'])
+        utils.plot(embedding, plot_data['label'],s=20)
+        plt.savefig(f'weights/gdumb/mem{args.mem_size}_exp{experience.current_experience}.png')
+
+
 
     return res
 
 
 if __name__ == '__main__':
     res = gdumb_smnist()
+    res = gdumb_smnist({'mem_size': 100})
+    res = gdumb_smnist({'mem_size': 500})
+    res = gdumb_smnist({'mem_size': 1000})
+    res = gdumb_smnist({'mem_size': 2000})
+    res = gdumb_smnist({'mem_size': 4000})
     print(res)
