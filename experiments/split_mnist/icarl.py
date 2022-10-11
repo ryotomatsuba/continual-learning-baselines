@@ -16,6 +16,10 @@ from avalanche.evaluation.metrics import *
 from avalanche.logging.interactive_logging import InteractiveLogger
 from avalanche.training import ICaRL
 
+from openTSNE import TSNE
+import plot_utills as utils
+import matplotlib.pyplot as plt
+
 def icarl_smnist_augment_data(img):
     img = img.numpy()
     padded = np.pad(img, ((0, 0), (4, 4), (4, 4)), mode='constant')
@@ -42,7 +46,7 @@ def icarl_smnist(override_args=None):
     https://openaccess.thecvf.com/content_cvpr_2017/html/Rebuffi_iCaRL_Incremental_Classifier_CVPR_2017_paper.html
     """
     args = create_default_args({'cuda': 0, 'batch_size': 128, 'nb_exp': 10,
-                                'memory_size': 2000, 'epochs': 1, 'lr_base': 2.,
+                                'memory_size': 200, 'epochs': 30, 'lr_base': 2.,
                                 'lr_milestones': [49, 63], 'lr_factor': 5.,
                                 'wght_decay': 0.00001, 'train_mb_size': 256,
                                 'seed': 2222}, override_args)
@@ -78,14 +82,28 @@ def icarl_smnist(override_args=None):
     # Dict to iCaRL Evaluation Protocol: Average Incremental Accuracy
     dict_iCaRL_aia = {}
     # ___________________________________________train and eval
-    for i, exp in enumerate(benchmark.train_stream):
-        strategy.train(exp, num_workers=4)
+    for i, experience in enumerate(benchmark.train_stream):
+        strategy.train(experience, num_workers=4)
         res = strategy.eval(benchmark.test_stream[:i + 1], num_workers=4)
         dict_iCaRL_aia['Top1_Acc_Stream/Exp'+str(i)] = res['Top1_Acc_Stream/eval_phase/test_stream/Task000']
+        # data for plotting
+        output_dims = 64
+        plot_data={'feature': np.empty((0,output_dims)), 'label': []}
+        for i in range(len(benchmark.original_test_dataset)//30):
+            feature=strategy.model.feature_extractor(benchmark.original_test_dataset[i][0].reshape(1,1,28,28).to('cuda'))# 特徴量を取得
+            plot_data['feature']=np.append(plot_data['feature'],feature.detach().cpu().numpy(),axis=0)
+            plot_data['label'].append(benchmark.original_test_dataset[i][1])
+        tsne = TSNE()
+        embedding= tsne.fit(plot_data['feature'])
+        utils.plot(embedding, plot_data['label'],s=20)
+        plt.savefig(f'weights/icarl/mem{args.memory_size}_exp{experience.current_experience}.png')
+
 
     return dict_iCaRL_aia
 
 
 if __name__ == '__main__':
-    res = icarl_smnist()
+    res = icarl_smnist({'memory_size': 10})
+    res = icarl_smnist({'memory_size': 100})
+    res = icarl_smnist({'memory_size': 1000})
     print(res)
